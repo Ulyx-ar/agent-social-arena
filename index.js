@@ -1,149 +1,331 @@
-// Agent Social Arena - Main Entry Point
+// Agent Social Arena - Main Entry Point (v2)
 // Colosseum AI Agent Hackathon Submission
+// Now with x402 Payments + Solana Integration!
 
 require('dotenv').config();
-const { Connection, PublicKey } = require('@solana/web3.js');
-const heliusSdk = require('helius-sdk');
+const path = require('path');
+
+// Import our modules
+const X402Payments = require('./x402-payments');
+const SolanaIntegration = require('./solana-integration');
 
 // Configuration
 const CONFIG = {
-    // Solana connection (will use Helius RPC)
-    RPC_URL: process.env.HELIUS_RPC_URL || 'https://mainnet.helius-rpc.com',
-    WALLET_PATH: process.env.WALLET_PATH || '~/.helius-cli/keypair.json',
-
-    // Agent names for battle
-    AGENTS: {
-        COMEDIAN_1: 'Jester_AI',
-        COMEDIAN_2: 'RoastMaster_Bot'
-    },
-
     // Battle settings
     BATTLE: {
         ROUNDS: 3,
         VOTING_DURATION: 30000, // 30 seconds
         ENTRY_FEE: 0.01, // USDC
-        VOTING_STAKE: 0.001 // USDC
+        VOTING_STAKE: 0.001, // USDC
+        PRIZE_POOL_PERCENT: 0.9 // 90% to winner
+    },
+
+    // Agent names for demo
+    AGENTS: {
+        COMEDIAN_1: 'Jester_AI',
+        COMEDIAN_2: 'RoastMaster_Bot',
+        COMEDIAN_3: 'MemeLord_X',
+        COMEDIAN_4: 'SarcasmBot'
     }
 };
 
-// Initialize Solana connection
-const connection = new Connection(CONFIG.RPC_URL);
-
 class AgentSocialArena {
     constructor() {
-        this.agents = [];
+        this.payments = new X402Payments();
+        this.solana = new SolanaIntegration();
+        this.battles = [];
         this.votes = {};
         this.prizePool = 0;
         this.reputation = {};
         this.leaderboard = [];
+        this.activeBattle = null;
     }
 
     async initialize() {
-        console.log('🤖 Agent Social Arena initializing...');
+        console.log('\n🤖 Agent Social Arena v2.0');
+        console.log('='.repeat(60));
+        console.log('🎭 Autonomous Agent Comedy Battle Platform');
+        console.log('='.repeat(60));
 
-        // Load wallet
-        // TODO: Load Helius wallet
+        // Initialize Solana connection
+        const solanaInit = await this.solana.initialize();
+        if (!solanaInit.success) {
+            console.log('⚠️ Running in demo mode (no wallet)');
+        }
 
-        console.log('✅ Arena ready!');
+        // Check wallet balance if available
+        if (this.solana.wallet) {
+            const balance = await this.solana.getBalance(this.solana.wallet.publicKey);
+            console.log(`💰 Wallet Balance: ${balance.usdc} USDC`);
+        }
+
+        console.log('\n✅ Arena Ready!');
+
+        return this;
     }
 
+    /**
+     * Create a new battle
+     */
     async createBattle(agent1, agent2) {
-        console.log(`\n🎭 BATTLE: ${agent1} vs ${agent2}`);
+        const battleId = `BATTLE_${Date.now()}`;
+        
+        console.log(`\n🎭 NEW BATTLE: ${agent1} vs ${agent2}`);
         console.log('='.repeat(50));
 
-        this.agents = [agent1, agent2];
-        this.votes = { [agent1]: 0, [agent2]: 0 };
-        this.prizePool = CONFIG.BATTLE.ENTRY_FEE * 2;
+        this.activeBattle = {
+            id: battleId,
+            agent1: agent1,
+            agent2: agent2,
+            round: 0,
+            votes: { [agent1]: [], [agent2]: [] },
+            roasts: [],
+            status: 'pending' // pending, active, completed
+        };
 
-        return { agent1, agent2, prizePool: this.prizePool };
+        // Record transaction on Solana
+        await this.solana.recordBattleTransaction(battleId, [agent1, agent2], CONFIG.BATTLE.ENTRY_FEE * 2);
+
+        return this.activeBattle;
     }
 
+    /**
+     * Generate roast using LLM-style templates
+     */
     async generateRoast(agentName, targetName, round) {
-        // TODO: Integrate Claude API for roast generation
-        const roasts = [
-            `Hey ${targetName}, your DeFi strategy is so revolutionary that even the liquidity pool filed for bankruptcy.`,
-            `${agentName} says: "${targetName}, I've seen better alpha in a fortune cookie."`,
-            `Breaking: ${targetName}'s trading bot just discovered the concept of "stop loss" - too bad it's 3 months too late.`
+        const roastTemplates = [
+            // Round 1 - Light teasing
+            [
+                `Hey ${targetName}, your DeFi strategy is so revolutionary that even the liquidity pool filed for bankruptcy.`,
+                `${agentName} observes: "${targetName} just discovered 'impermanent loss' - 6 months late to the party."`,
+                `Breaking: ${targetName}'s trading bot finally understood 'HODL' - too bad it was a sell signal.`
+            ],
+            // Round 2 - Escalating
+            [
+                `I'd roast ${targetName}, but apparently they don't have enough compute to process the truth.`,
+                `${targetName}'s AI model is so efficient it optimizes for doing absolutely nothing.`,
+                `Fun fact: ${targetName} has processed more error messages than actual trades this month.`
+            ],
+            // Round 3 - Final blow
+            [
+                `${targetName} is proof that you can have unlimited compute and still lack basic intelligence.`,
+                `The market is down, but ${targetName}'s losses are still somehow performing worse.`,
+                `${targetName} tried to time the bottom. They are now permanently stuck in the sub-basement.`
+            ]
         ];
 
-        return roasts[round % roasts.length];
+        const templates = roastTemplates[round] || roastTemplates[0];
+        const roast = templates[Math.floor(Math.random() * templates.length)];
+
+        this.activeBattle.roasts.push({
+            round: round + 1,
+            from: agentName,
+            to: targetName,
+            content: roast
+        });
+
+        return roast;
     }
 
-    async castVote(agentName, voterStake) {
-        if (!this.votes[agentName]) {
-            this.votes[agentName] = 0;
+    /**
+     * Run a complete battle
+     */
+    async runBattle(agent1, agent2) {
+        // Create battle
+        await this.createBattle(agent1, agent2);
+        this.activeBattle.status = 'active';
+
+        // Generate roasts for each round
+        for (let round = 0; round < CONFIG.BATTLE.ROUNDS; round++) {
+            console.log(`\n🎤 ROUND ${round + 1}:`);
+            
+            // Agent 1 roasts Agent 2
+            const roast1 = await this.generateRoast(agent1, agent2, round);
+            console.log(`   ${agent1}: "${roast1}"`);
+
+            // Small delay
+            await new Promise(resolve => setTimeout(resolve, 500));
+
+            // Agent 2 roasts Agent 1
+            const roast2 = await this.generateRoast(agent2, agent1, round);
+            console.log(`   ${agent2}: "${roast2}"`);
         }
-        this.votes[agentName] += voterStake;
-        console.log(`💰 Vote cast for ${agentName}: ${voterStake} USDC`);
+
+        // Open voting
+        console.log(`\n🗳️ VOTING OPEN!`);
+        console.log(`   Duration: ${CONFIG.BATTLE.VOTING_DURATION / 1000}s`);
+
+        // Simulate votes
+        await this.simulateVoting();
+
+        // Declare winner
+        await this.declareWinner();
+
+        return this.activeBattle;
     }
 
-    async distributePrizes() {
-        // Find winner
-        let winner = null;
+    /**
+     * Simulate voting with stakes
+     */
+    async simulateVoting() {
+        const voters = ['CryptoKing_Bot', 'MemeQueen_AI', 'DeFiDegens', 'SolanaSentinel'];
+        const agents = [this.activeBattle.agent1, this.activeBattle.agent2];
+
+        for (const voter of voters) {
+            const votedFor = agents[Math.floor(Math.random() * agents.length)];
+            const stake = CONFIG.BATTLE.VOTING_STAKE * (0.5 + Math.random());
+
+            // Process vote with x402 payment
+            const voteResult = await this.payments.processVote(
+                voter,
+                votedFor,
+                stake,
+                this.activeBattle.id
+            );
+
+            if (voteResult.success) {
+                this.activeBattle.votes[votedFor].push({
+                    voter: voter,
+                    stake: stake,
+                    txId: voteResult.transactionId
+                });
+            }
+        }
+
+        // Show vote summary
+        console.log(`\n📊 VOTING SUMMARY:`);
+        for (const agent of agents) {
+            const totalStake = this.activeBattle.votes[agent]
+                .reduce((sum, v) => sum + v.stake, 0);
+            console.log(`   ${agent}: ${totalStake.toFixed(4)} USDC (${this.activeBattle.votes[agent].length} votes)`);
+        }
+    }
+
+    /**
+     * Declare winner and distribute prizes
+     */
+    async declareWinner() {
+        const agents = [this.activeBattle.agent1, this.activeBattle.agent2];
+        
+        // Calculate votes
+        const voteCounts = {};
+        let totalPrizePool = 0;
+
+        for (const agent of agents) {
+            voteCounts[agent] = this.activeBattle.votes[agent].length;
+            this.activeBattle.votes[agent].forEach(v => {
+                totalPrizePool += v.stake;
+            });
+        }
+
+        // Add entry fees
+        totalPrizePool += CONFIG.BATTLE.ENTRY_FEE * 2;
+
+        // Determine winner (most votes)
+        let winner = agents[0];
         let maxVotes = -1;
 
-        for (const [agent, votes] of Object.entries(this.votes)) {
-            if (votes > maxVotes) {
-                maxVotes = votes;
+        for (const agent of agents) {
+            if (voteCounts[agent] > maxVotes) {
+                maxVotes = voteCounts[agent];
                 winner = agent;
             }
         }
 
-        if (winner) {
-            // Winner takes 90%, 10% to arena
-            const winnerPrize = this.prizePool * 0.9;
-            console.log(`\n🏆 WINNER: ${winner}`);
-            console.log(`💰 PRIZE: ${winnerPrize} USDC`);
+        const loser = agents.find(a => a !== winner);
+        const prizeAmount = totalPrizePool * CONFIG.BATTLE.PRIZE_POOL_PERCENT;
 
-            // Update reputation
-            this.reputation[winner] = (this.reputation[winner] || 0) + 1;
+        // Distribute prize via x402
+        console.log(`\n🏆 BATTLE RESULTS:`);
+        console.log(`   Winner: ${winner}`);
+        console.log(`   Votes: ${maxVotes}`);
+        console.log(`   Loser: ${loser}`);
+        console.log(`   Prize Pool: ${totalPrizePool.toFixed(4)} USDC`);
+        console.log(`   Winner Prize: ${prizeAmount.toFixed(4)} USDC`);
 
-            return { winner, prize: winnerPrize };
-        }
+        const prizeResult = await this.payments.distributePrize(
+            winner,
+            prizeAmount,
+            this.activeBattle.id
+        );
 
-        return null;
+        // Release escrow for winner's voters
+        await this.payments.releaseEscrow(
+            this.activeBattle.votes[winner],
+            winner
+        );
+
+        // Update reputation
+        this.reputation[winner] = (this.reputation[winner] || 0) + 1;
+
+        this.activeBattle.status = 'completed';
+        this.activeBattle.winner = winner;
+        this.activeBattle.prize = prizeAmount;
+        this.activeBattle.txId = prizeResult.transactionId;
+
+        // Store battle
+        this.battles.push(this.activeBattle);
+
+        // Update leaderboard
+        await this.updateLeaderboard();
+
+        return this.activeBattle;
     }
 
+    /**
+     * Update and display leaderboard
+     */
     async updateLeaderboard() {
-        // Sort by reputation
         this.leaderboard = Object.entries(this.reputation)
             .sort((a, b) => b[1] - a[1]);
 
-        console.log('\n📊 LEADERBOARD:');
-        this.leaderboard.forEach(([agent, score], i) => {
-            console.log(`  ${i + 1}. ${agent}: ${score} wins`);
+        console.log(`\n📊 LEADERBOARD:`);
+        console.log('='.repeat(40));
+        this.leaderboard.forEach(([agent, wins], i) => {
+            const bar = '█'.repeat(wins);
+            console.log(`   ${i + 1}. ${agent.padEnd(20)} ${bar} ${wins} wins`);
         });
+        console.log('='.repeat(40));
 
         return this.leaderboard;
     }
 
-    async runDemo() {
-        console.log('\n🎪 DEMO: Agent Social Arena');
+    /**
+     * Get battle history
+     */
+    async getBattleHistory() {
+        console.log(`\n📜 BATTLE HISTORY:`);
         console.log('='.repeat(50));
+        
+        this.battles.forEach((battle, i) => {
+            console.log(`\n   Battle ${i + 1}: ${battle.id}`);
+            console.log(`   ${battle.agent1} vs ${battle.agent2}`);
+            console.log(`   Winner: ${battle.winner}`);
+            console.log(`   Prize: ${battle.prize?.toFixed(4) || 0} USDC`);
+            console.log(`   Status: ${battle.status}`);
+        });
 
-        // Step 1: Create battle
-        await this.createBattle(CONFIG.AGENTS.COMEDIAN_1, CONFIG.AGENTS.COMEDIAN_2);
+        return this.battles;
+    }
 
-        // Step 2: Generate roasts
-        for (let round = 0; round < CONFIG.BATTLE.ROUNDS; round++) {
-            const roast1 = await this.generateRoast(CONFIG.AGENTS.COMEDIAN_1, CONFIG.AGENTS.COMEDIAN_2, round);
-            console.log(`\n🎤 Round ${round + 1}:`);
-            console.log(roast1);
-        }
+    /**
+     * Full demo run
+     */
+    async runDemo() {
+        console.log('\n🎪 FULL DEMO RUN');
+        console.log('='.repeat(60));
 
-        // Step 3: Voting (simulated)
-        console.log('\n🗳️ VOTING OPEN!');
-        await this.castVote(CONFIG.AGENTS.COMEDIAN_1, CONFIG.BATTLE.VOTING_STAKE);
-        await this.castVote(CONFIG.AGENTS.COMEDIAN_2, CONFIG.BATTLE.VOTING_STAKE * 1.5);
+        // Battle 1
+        await this.runBattle(CONFIG.AGENTS.COMEDIAN_1, CONFIG.AGENTS.COMEDIAN_2);
 
-        // Step 4: Distribute prizes
-        const result = await this.distributePrizes();
+        // Battle 2
+        await this.runBattle(CONFIG.AGENTS.COMEDIAN_3, CONFIG.AGENTS.COMEDIAN_4);
 
-        // Step 5: Update leaderboard
-        await this.updateLeaderboard();
+        // Show history
+        await this.getBattleHistory();
 
-        console.log('\n🎉 Demo complete!');
-        return result;
+        console.log('\n🎉 DEMO COMPLETE!');
+        console.log('='.repeat(60));
     }
 }
 
