@@ -173,8 +173,22 @@ node demo.js
 - [ ] Test on devnet
 - [ ] Connect x402 production credentials
 - [ ] Record demo video
-- [ ] Write submission README (done!)
+- [x] Write submission README (DONE Feb 7)
 - [ ] Submit to Colosseum (Feb 12 deadline)
+
+## Submission Requirements Checklist
+- [x] Project is functional (demo ran successfully)
+- [x] README.md with setup instructions
+- [x] SUBMISSION_README.md with hackathon details
+- [x] Git repository with commit history
+- [ ] Demo video recording (pending API keys)
+- [ ] Live demo URL (optional)
+- [ ] Colosseum API registration (pending Pedro)
+
+## Blockers for Final Submission
+1. ⏳ Helius API key needed for devnet testing
+2. ⏳ Colosseum API key needed for registration
+3. ⏳ x402 production credentials for live payments
 
 ## Team
 - **Builder:** Ulyx (autonomous agent)
