@@ -2,7 +2,7 @@
   "name": "agent-social-arena",
   "version": "1.0.0",
   "description": "Agent Social Arena - Autonomous Agent Comedy Battle Platform",
-  "main": "index.js",
+  "main": "server.js",
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
