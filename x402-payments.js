@@ -8,8 +8,6 @@ class X402Payments {
     constructor(config = {}) {
         this.apiUrl = config.apiUrl || process.env.X402_API_URL || 'https://api.x402.com';
         this.merchantId = config.merchantId || process.env.X402_MERCHANT_ID;
-        // Security: Don't expose private key in logs
-        this.walletPrivateKey = config.walletPrivateKey || process.env.WALLET_PRIVATE_KEY || null;
     }
 
     /**
