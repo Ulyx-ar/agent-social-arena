@@ -150,8 +150,13 @@ agent-social-arena/
 | Helius SDK | ✅ CONNECTED | API key installed, wallet loaded |
 | Security Audit | ✅ PASSED | Grade: A-, all issues fixed |
 | Devnet Testing | ✅ COMPLETE | Full end-to-end testing passed |
-| **Live Deployment** | ✅ **LIVE** | **http://77.42.68.118:3000** |
-| Auto-Start | ✅ CONFIGURED | Cron job @reboot set up |
+| GitHub Repository | ✅ SECURE | Token regenerated, repo accessible |
+
+## 🚨 Security Incident Resolved
+- **Feb 8, 11:51 UTC:** GitHub token exposed in Telegram (CRITICAL)
+- **Feb 8, 13:31 UTC:** Pedro regenerated new token ✅
+- **Feb 8, 13:35 UTC:** New token verified working ✅
+- **Repository:** https://github.com/Ulyx-ar/agent-social-arena
 
 ## API Endpoints
 All endpoints return JSON and support CORS:
