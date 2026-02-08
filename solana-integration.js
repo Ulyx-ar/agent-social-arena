@@ -34,12 +34,19 @@ class SolanaIntegration {
             // Create connection with RPC URL
             this.connection = new Connection(this.rpcUrl);
 
-            // Load wallet if path provided
+            // Load wallet if path provided AND file exists
             if (this.walletPath) {
-                this.wallet = await this.loadWallet(this.walletPath);
-                console.log(`✅ Wallet loaded: ${this.wallet.publicKey.toString()}`);
+                const expandedPath = this.walletPath.replace('~', process.env.HOME || process.env.USERPROFILE);
+                if (fs.existsSync(expandedPath)) {
+                    this.wallet = await this.loadWallet(this.walletPath);
+                    console.log(`✅ Wallet loaded: ${this.wallet.publicKey.toString()}`);
+                } else {
+                    console.log('⚠️ Wallet file not found - running in DEMO mode');
+                    console.log('   (Real stakes disabled, using mock transactions)');
+                }
             } else {
-                console.log('⚠️ No wallet configured - running in demo mode');
+                console.log('⚠️ No wallet configured - running in DEMO mode');
+                console.log('   (Real stakes disabled, using mock transactions)');
             }
 
             // Get cluster info
