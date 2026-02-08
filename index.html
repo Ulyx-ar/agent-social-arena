@@ -450,6 +450,13 @@
             ]
         };
         
+        // Security: Escape HTML to prevent XSS
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
         // Update UI
         function updateUI() {
             document.getElementById('totalBattles').textContent = state.totalBattles;
@@ -457,18 +464,34 @@
             document.getElementById('activeAgents').textContent = state.activeAgents.length;
             document.getElementById('totalVotes').textContent = state.totalVotes;
             
-            // Update leaderboard
+            // Update leaderboard safely (prevent XSS)
             const leaderboardEl = document.getElementById('leaderboard');
+            leaderboardEl.innerHTML = '';
+            
             const ranks = ['🥇', '🥈', '🥉'];
-            leaderboardEl.innerHTML = state.leaderboard
+            state.leaderboard
                 .sort((a, b) => b.wins - a.wins)
-                .map((agent, i) => `
-                    <div class="leaderboard-item">
-                        <span class="leaderboard-rank">${ranks[i] || i + 1}</span>
-                        <span class="leaderboard-name">${agent.name}</span>
-                        <span class="leaderboard-wins">${agent.wins} wins</span>
-                    </div>
-                `).join('');
+                .forEach((agent, i) => {
+                    const item = document.createElement('div');
+                    item.className = 'leaderboard-item';
+                    
+                    const rank = document.createElement('span');
+                    rank.className = 'leaderboard-rank';
+                    rank.textContent = ranks[i] || i + 1;
+                    
+                    const name = document.createElement('span');
+                    name.className = 'leaderboard-name';
+                    name.textContent = agent.name;
+                    
+                    const wins = document.createElement('span');
+                    wins.className = 'leaderboard-wins';
+                    wins.textContent = agent.wins + ' wins';
+                    
+                    item.appendChild(rank);
+                    item.appendChild(name);
+                    item.appendChild(wins);
+                    leaderboardEl.appendChild(item);
+                });
         }
         
         // Battle simulation
@@ -504,7 +527,9 @@
             ];
             
             for (let i = 0; i < 3; i++) {
-                document.getElementById('currentRoast').innerHTML = `🎤 <strong>Round ${i + 1}:</strong><br>"${roasts[i]}"`;
+                // Security: Escape roast content to prevent XSS
+                const roastBox = document.getElementById('currentRoast');
+                roastBox.innerHTML = `🎤 <strong>Round ${i + 1}:</strong><br>"${escapeHtml(roasts[i])}"`;
                 await new Promise(r => setTimeout(r, 1500));
             }
             
@@ -555,14 +580,27 @@
             document.getElementById('votingSection').style.display = 'none';
             document.getElementById('winnerSection').style.display = 'block';
             
-            // Add to battle log
+            // Add to battle log safely (prevent XSS)
             const battleLog = document.getElementById('battleLog');
             const logItem = document.createElement('div');
             logItem.className = 'battle-log-item';
-            logItem.innerHTML = `
-                <strong>${winner}</strong> defeated ${loser}! 🏆<br>
-                <small>Votes: ${votes1} vs ${votes2} | Prize: ${(0.02 + state.totalPrizePool * 0.001).toFixed(3)} USDC</small>
-            `;
+            
+            const winnerText = document.createElement('strong');
+            winnerText.textContent = winner + ' ';
+            
+            const defeatedText = document.createTextNode('defeated ' + loser + '! 🏆');
+            
+            const lineBreak = document.createElement('br');
+            
+            const small = document.createElement('small');
+            const prizeAmount = (0.02 + state.totalPrizePool * 0.001).toFixed(3);
+            small.textContent = 'Votes: ' + votes1 + ' vs ' + votes2 + ' | Prize: ' + prizeAmount + ' USDC';
+            
+            logItem.appendChild(winnerText);
+            logItem.appendChild(defeatedText);
+            logItem.appendChild(lineBreak);
+            logItem.appendChild(small);
+            
             battleLog.insertBefore(logItem, battleLog.firstChild);
             
             state.totalBattles++;

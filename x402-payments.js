@@ -2,12 +2,30 @@
 // Handles micropayments via HTTP 402 protocol
 
 const axios = require('axios');
+const crypto = require('crypto');
 
 class X402Payments {
     constructor(config = {}) {
         this.apiUrl = config.apiUrl || process.env.X402_API_URL || 'https://api.x402.com';
         this.merchantId = config.merchantId || process.env.X402_MERCHANT_ID;
-        this.walletPrivateKey = config.walletPrivateKey || process.env.WALLET_PRIVATE_KEY;
+        // Security: Don't expose private key in logs
+        this.walletPrivateKey = config.walletPrivateKey || process.env.WALLET_PRIVATE_KEY || null;
+    }
+
+    /**
+     * Generate cryptographically secure nonce
+     */
+    generateSecureNonce() {
+        return crypto.randomBytes(16).toString('hex');
+    }
+
+    /**
+     * Generate cryptographically secure transaction ID
+     */
+    generateSecureTxId() {
+        const bytes = crypto.randomBytes(12);
+        const timestamp = Date.now().toString(36);
+        return `TXN_${timestamp}_${bytes.toString('hex')}`;
     }
 
     /**
@@ -27,13 +45,15 @@ class X402Payments {
                 payer: payerId,
                 description: description,
                 timestamp: Date.now(),
-                nonce: Math.random().toString(36).substring(7)
+                // Security: Use CSPRNG for nonce
+                nonce: this.generateSecureNonce()
             };
 
+            // Security: Don't log sensitive information
             console.log(`💰 Payment Request Created:`);
             console.log(`   Service: ${serviceName}`);
             console.log(`   Amount: ${amountUSDC} USDC`);
-            console.log(`   Payer: ${payerId}`);
+            console.log(`   Payer: [REDACTED]`);
 
             return {
                 success: true,
@@ -41,8 +61,9 @@ class X402Payments {
                 paymentUrl: `${this.apiUrl}/pay/${paymentRequest.nonce}`
             };
         } catch (error) {
-            console.error('❌ Payment Request Error:', error.message);
-            return { success: false, error: error.message };
+            // Security: Don't expose error details
+            console.error('❌ Payment Request Error: [Internal error]');
+            return { success: false, error: 'Payment request failed' };
         }
     }
 
@@ -52,13 +73,13 @@ class X402Payments {
      */
     async processPayment(paymentRequest) {
         try {
-            // Simulate payment processing
-            console.log(`🔄 Processing payment for ${paymentRequest.amount} USDC...`);
+            // Security: Don't log sensitive amounts in production
+            console.log(`🔄 Processing payment...`);
             
             await new Promise(resolve => setTimeout(resolve, 500));
 
-            // Generate mock transaction ID
-            const transactionId = `TXN_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+            // Generate secure transaction ID
+            const transactionId = this.generateSecureTxId();
 
             console.log(`✅ Payment Processed!`);
             console.log(`   Transaction ID: ${transactionId}`);
@@ -71,8 +92,9 @@ class X402Payments {
                 timestamp: Date.now()
             };
         } catch (error) {
-            console.error('❌ Payment Processing Error:', error.message);
-            return { success: false, error: error.message };
+            // Security: Don't expose error details
+            console.error('❌ Payment Processing Error: [Internal error]');
+            return { success: false, error: 'Payment processing failed' };
         }
     }
 
@@ -87,7 +109,7 @@ class X402Payments {
             console.log(`\n🏆 DISTRIBUTING PRIZE:`);
             console.log(`   Winner: ${winnerId}`);
             console.log(`   Amount: ${prizeAmount} USDC`);
-            console.log(`   Battle: ${battleId}`);
+            console.log(`   Battle: [ID REDACTED]`);
 
             // Create payment request for prize
             const paymentRequest = await this.createPaymentRequest(
@@ -98,7 +120,7 @@ class X402Payments {
             );
 
             if (!paymentRequest.success) {
-                throw new Error(paymentRequest.error);
+                throw new Error('Payment request failed');
             }
 
             // Process the prize payment
@@ -111,8 +133,9 @@ class X402Payments {
                 transactionId: result.transactionId
             };
         } catch (error) {
-            console.error('❌ Prize Distribution Error:', error.message);
-            return { success: false, error: error.message };
+            // Security: Generic error message
+            console.error('❌ Prize Distribution Error: [Internal error]');
+            return { success: false, error: 'Prize distribution failed' };
         }
     }
 
@@ -125,8 +148,8 @@ class X402Payments {
      */
     async processVote(voterId, votedFor, stakeAmount, battleId) {
         try {
+            // Security: Don't log voter identity
             console.log(`\n🗳️ PROCESSING VOTE:`);
-            console.log(`   Voter: ${voterId}`);
             console.log(`   Voted For: ${votedFor}`);
             console.log(`   Stake: ${stakeAmount} USDC`);
 
@@ -139,7 +162,7 @@ class X402Payments {
             );
 
             if (!paymentRequest.success) {
-                throw new Error(paymentRequest.error);
+                throw new Error('Payment request failed');
             }
 
             // Process the stake (held in escrow until battle ends)
@@ -147,15 +170,16 @@ class X402Payments {
 
             return {
                 success: true,
-                voter: voterId,
+                voter: '[REDACTED]',
                 votedFor: votedFor,
                 stake: stakeAmount,
                 transactionId: result.transactionId,
                 status: 'escrow' // Held until battle ends
             };
         } catch (error) {
-            console.error('❌ Vote Processing Error:', error.message);
-            return { success: false, error: error.message };
+            // Security: Generic error message
+            console.error('❌ Vote Processing Error: [Internal error]');
+            return { success: false, error: 'Vote processing failed' };
         }
     }
 
@@ -174,7 +198,7 @@ class X402Payments {
             for (const voter of voters) {
                 if (voter.votedFor === winnerId) {
                     // Winner voters get their stake back + share of pool
-                    console.log(`   ✅ ${voter.voter}: stake returned + share`);
+                    console.log(`   ✅ [VOTER]: stake returned + share`);
                     releasedVotes.push({
                         ...voter,
                         status: 'released',
@@ -182,7 +206,7 @@ class X402Payments {
                     });
                 } else {
                     // Loser voters lose their stake
-                    console.log(`   ❌ ${voter.voter}: stake lost`);
+                    console.log(`   ❌ [VOTER]: stake lost`);
                     releasedVotes.push({
                         ...voter,
                         status: 'forfeited'
@@ -192,8 +216,9 @@ class X402Payments {
 
             return { success: true, releasedVotes };
         } catch (error) {
-            console.error('❌ Escrow Release Error:', error.message);
-            return { success: false, error: error.message };
+            // Security: Generic error message
+            console.error('❌ Escrow Release Error: [Internal error]');
+            return { success: false, error: 'Escrow release failed' };
         }
     }
 

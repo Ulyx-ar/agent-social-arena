@@ -4,12 +4,16 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 
 // Import our modules
 const X402Payments = require('./x402-payments');
 const SolanaIntegration = require('./solana-integration');
 
 const PORT = process.env.PORT || 3000;
+
+// Security: Allowed CORS origins
+const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000'];
 
 // Configuration
 const CONFIG = {
@@ -18,8 +22,15 @@ const CONFIG = {
         ENTRY_FEE: 0.01,
         VOTING_STAKE: 0.001,
         ROUNDS: 3
+    },
+    RATE_LIMIT: {
+        WINDOW_MS: 15 * 60 * 1000, // 15 minutes
+        MAX_REQUESTS: 100
     }
 };
+
+// Rate limiting state
+const rateLimitMap = new Map();
 
 // In-memory state
 const state = {
@@ -41,6 +52,44 @@ const state = {
 const payments = new X402Payments();
 const solana = new SolanaIntegration();
 
+/**
+ * Generate cryptographically secure random ID
+ */
+function generateSecureId(prefix) {
+    const bytes = crypto.randomBytes(8);
+    const id = bytes.toString('hex');
+    return `${prefix}_${id}`;
+}
+
+/**
+ * Rate limiting check - returns true if request should be blocked
+ */
+function checkRateLimit(clientId) {
+    const now = Date.now();
+    const windowStart = now - CONFIG.RATE_LIMIT.WINDOW_MS;
+    
+    if (!rateLimitMap.has(clientId)) {
+        rateLimitMap.set(clientId, []);
+    }
+    
+    const requests = rateLimitMap.get(clientId);
+    
+    // Clean old requests
+    const validRequests = requests.filter(timestamp => timestamp > windowStart);
+    rateLimitMap.set(clientId, validRequests);
+    
+    // Check limit
+    if (validRequests.length >= CONFIG.RATE_LIMIT.MAX_REQUESTS) {
+        return true; // Rate limited
+    }
+    
+    // Add current request
+    validRequests.push(now);
+    rateLimitMap.set(clientId, validRequests);
+    
+    return false;
+}
+
 class ArenaServer {
     constructor() {
         this.server = null;
@@ -53,10 +102,19 @@ class ArenaServer {
     }
     
     /**
-     * Serve static files
+     * Serve static files with path traversal protection
      */
     serveStatic(filePath, contentType) {
-        const fullPath = path.join(__dirname, filePath);
+        // Security: Validate and sanitize file path
+        const safeFileName = path.basename(filePath);
+        const fullPath = path.join(__dirname, safeFileName);
+        
+        // Security: Ensure path stays within project directory
+        const resolvedPath = path.resolve(__dirname, safeFileName);
+        if (!resolvedPath.startsWith(__dirname)) {
+            return { status: 403, content: 'Forbidden', contentType: 'text/plain' };
+        }
+        
         try {
             const content = fs.readFileSync(fullPath);
             return { status: 200, content, contentType };
@@ -98,25 +156,40 @@ class ArenaServer {
      * Handle API requests
      */
     async handleRequest(req, res) {
+        // Security: Validate CORS origin
+        const origin = req.headers.origin || '';
+        const allowedOrigin = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
+        
         const headers = {
-            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Origin': allowedOrigin,
             'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-            'Content-Type': 'application/json'
+            'Access-Control-Allow-Headers': 'Content-Type',
+            'Content-Type': 'application/json',
+            'X-Content-Type-Options': 'nosniff',
+            'X-Frame-Options': 'DENY'
         };
         
-        // CORS
+        // CORS preflight
         if (req.method === 'OPTIONS') {
             res.writeHead(204, headers);
             res.end();
             return;
         }
         
+        // Security: Rate limiting
+        const clientId = req.socket.remoteAddress || 'unknown';
+        if (checkRateLimit(clientId)) {
+            res.writeHead(429, headers);
+            res.end(JSON.stringify({ success: false, error: 'Too many requests' }));
+            return;
+        }
+        
         const url = new URL(req.url, `http://localhost:${PORT}`);
-        const path = url.pathname;
+        const pathName = url.pathname;
         
         try {
             // API Routes
-            if (path === '/api/status') {
+            if (pathName === '/api/status') {
                 res.writeHead(200, headers);
                 res.end(JSON.stringify({
                     success: true,
@@ -131,8 +204,8 @@ class ArenaServer {
                 return;
             }
             
-            if (path === '/api/battle/start') {
-                // Create new battle
+            if (pathName === '/api/battle/start') {
+                // Create new battle with secure ID
                 const agent1 = state.activeAgents[Math.floor(Math.random() * state.activeAgents.length)];
                 let agent2 = state.activeAgents[Math.floor(Math.random() * state.activeAgents.length)];
                 while (agent2 === agent1) {
@@ -140,7 +213,7 @@ class ArenaServer {
                 }
                 
                 state.currentBattle = {
-                    id: `BATTLE_${Date.now()}`,
+                    id: generateSecureId('BATTLE'),
                     agent1: agent1,
                     agent2: agent2,
                     round: 0,
@@ -159,7 +232,7 @@ class ArenaServer {
                 return;
             }
             
-            if (path === '/api/battle/roast') {
+            if (pathName === '/api/battle/roast') {
                 // Get next roast
                 if (!state.currentBattle || state.currentBattle.status !== 'active') {
                     res.writeHead(400, headers);
@@ -190,8 +263,8 @@ class ArenaServer {
                 return;
             }
             
-            if (path === '/api/battle/vote') {
-                // Cast vote
+            if (pathName === '/api/battle/vote') {
+                // Cast vote with strict input validation
                 if (!state.currentBattle || state.currentBattle.status !== 'active') {
                     res.writeHead(400, headers);
                     res.end(JSON.stringify({ success: false, error: 'No active battle' }));
@@ -199,13 +272,15 @@ class ArenaServer {
                 }
                 
                 const agent = url.searchParams.get('agent');
-                if (agent !== 'agent1' && agent !== 'agent2') {
+                const allowedAgents = ['agent1', 'agent2'];
+                if (!agent || !allowedAgents.includes(agent)) {
                     res.writeHead(400, headers);
-                    res.end(JSON.stringify({ success: false, error: 'Invalid agent' }));
+                    res.end(JSON.stringify({ success: false, error: 'Invalid agent parameter' }));
                     return;
                 }
                 
-                const voterId = `Voter_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+                // Use secure ID generation
+                const voterId = generateSecureId('VOTER');
                 
                 // Process vote with x402
                 const voteResult = await payments.processVote(
@@ -234,7 +309,7 @@ class ArenaServer {
                 return;
             }
             
-            if (path === '/api/battle/end') {
+            if (pathName === '/api/battle/end') {
                 // End battle and declare winner
                 if (!state.currentBattle || state.currentBattle.status !== 'active') {
                     res.writeHead(400, headers);
@@ -253,7 +328,9 @@ class ArenaServer {
                     winner = state.currentBattle.agent2;
                     loser = state.currentBattle.agent1;
                 } else {
-                    winner = [state.currentBattle.agent1, state.currentBattle.agent2][Math.floor(Math.random() * 2)];
+                    // Use CSPRNG for tiebreaker
+                    const winnerIndex = crypto.randomInt(0, 2);
+                    winner = [state.currentBattle.agent1, state.currentBattle.agent2][winnerIndex];
                     loser = winner === state.currentBattle.agent1 ? state.currentBattle.agent2 : state.currentBattle.agent1;
                 }
                 
@@ -293,7 +370,7 @@ class ArenaServer {
                 return;
             }
             
-            if (path === '/api/leaderboard') {
+            if (pathName === '/api/leaderboard') {
                 res.writeHead(200, headers);
                 res.end(JSON.stringify({
                     success: true,
@@ -302,7 +379,7 @@ class ArenaServer {
                 return;
             }
             
-            if (path === '/api/history') {
+            if (pathName === '/api/history') {
                 res.writeHead(200, headers);
                 res.end(JSON.stringify({
                     success: true,
@@ -312,7 +389,7 @@ class ArenaServer {
             }
             
             // Serve HTML
-            if (path === '/' || path === '/index.html') {
+            if (pathName === '/' || pathName === '/index.html') {
                 const response = this.serveStatic('index.html', 'text/html');
                 res.writeHead(response.status, { 'Content-Type': response.contentType });
                 res.end(response.content);
@@ -325,8 +402,9 @@ class ArenaServer {
             
         } catch (error) {
             console.error('Request error:', error);
+            // Security: Don't expose error details
             res.writeHead(500, headers);
-            res.end(JSON.stringify({ success: false, error: error.message }));
+            res.end(JSON.stringify({ success: false, error: 'Internal server error' }));
         }
     }
     
