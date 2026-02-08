@@ -1,6 +1,7 @@
 // Agent Social Arena - Web Server
 // Serves the UI and provides REST API
 
+require('dotenv').config();
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
