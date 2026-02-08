@@ -7,8 +7,13 @@ const path = require('path');
 
 class SolanaIntegration {
     constructor(config = {}) {
+        this.apiKey = config.apiKey || process.env.HELIUS_API_KEY || '';
         this.rpcUrl = config.rpcUrl || process.env.HELIUS_RPC_URL || 'https://mainnet.helius-rpc.com';
-        this.apiKey = config.apiKey || process.env.HELIUS_API_KEY;
+        // Append API key to RPC URL if available
+        if (this.apiKey && !this.rpcUrl.includes('api-key=')) {
+            this.rpcUrl += this.rpcUrl.includes('?') ? '&' : '?';
+            this.rpcUrl += `api-key=${this.apiKey}`;
+        }
         this.walletPath = config.walletPath || process.env.WALLET_PATH;
         this.wallet = null;
         this.connection = null;
@@ -23,6 +28,8 @@ class SolanaIntegration {
     async initialize() {
         try {
             console.log('🔗 Connecting to Solana via Helius...');
+            console.log('📡 RPC URL:', this.rpcUrl.substring(0, 80) + '...');
+            console.log('🔑 API Key:', this.apiKey ? 'present' : 'MISSING!');
 
             // Create connection with RPC URL
             this.connection = new Connection(this.rpcUrl);
