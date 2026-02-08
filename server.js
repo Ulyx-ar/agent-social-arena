@@ -12,6 +12,7 @@ const X402Payments = require('./x402-payments');
 const SolanaIntegration = require('./solana-integration');
 
 const PORT = process.env.PORT || 3000;
+const HOST = process.env.HOST || '0.0.0.0';
 
 // Security: Allowed CORS origins
 const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000'];
@@ -415,7 +416,7 @@ class ArenaServer {
     start() {
         this.server = http.createServer((req, res) => this.handleRequest(req, res));
         
-        this.server.listen(PORT, () => {
+        this.server.listen(PORT, HOST, () => {
             console.log(`
 🎭 Agent Social Arena Server
 ============================
