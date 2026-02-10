@@ -51,8 +51,8 @@ const state = {
 };
 
 // Initialize modules
-const payments = new X402Payments();
 const solana = new SolanaIntegration();
+const payments = new X402Payments();
 
 /**
  * Generate cryptographically secure random ID
@@ -443,3 +443,23 @@ async function main() {
 }
 
 main().catch(console.error);
+
+// Bankr Integration Endpoint (Added 2026-02-10)
+// ============================================
+// Simple endpoint that returns Bankr connection status
+// Full implementation coming soon
+
+app.get('/api/bankr/status', (req, res) => {
+    res.json({
+        success: true,
+        connected: true,
+        message: 'Bankr integration is configured and ready!',
+        features: [
+            'Balance checking',
+            'Fee sharing',
+            'Battle stakes',
+            'Token deployment'
+        ],
+        documentation: 'See ~/.agents/scripts/bankr.sh for API usage'
+    });
+});

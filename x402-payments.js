@@ -1,10 +1,11 @@
 // x402 Payment Integration for Agent Social Arena
-// Handles micropayments via HTTP 402 protocol with AgentWallet
+// Handles micropayments via HTTP 402 protocol with AgentWallet and Solana
 
 const axios = require('axios');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const SolanaIntegration = require('./solana-integration');
 
 class X402Payments {
     constructor(config = {}) {
@@ -14,6 +15,9 @@ class X402Payments {
         // AgentWallet integration
         this.agentWalletConfig = null;
         this.loadAgentWalletConfig();
+        
+        // Solana integration for real USDC transfers
+        this.solana = new SolanaIntegration();
     }
     
     /**
@@ -195,27 +199,37 @@ class X402Payments {
             console.log(`   Amount: ${prizeAmount} USDC`);
             console.log(`   Battle: [ID REDACTED]`);
             
-            // Create payment request for prize
-            const paymentRequest = await this.createPaymentRequest(
-                'battle-prize',
-                prizeAmount,
-                winnerId,
-                `Prize for winning battle ${battleId}`
-            );
+            // Initialize Solana connection
+            await this.solana.initialize();
             
-            if (!paymentRequest.success) {
-                throw new Error('Payment request failed');
+            // Check if we have a real wallet
+            if (this.solana.wallet) {
+                console.log('   Using real USDC transaction via Helius/Solana');
+                
+                // Send prize to winner
+                const result = await this.solana.sendUSDC(winnerId, prizeAmount);
+                
+                return {
+                    success: true,
+                    winner: winnerId,
+                    amount: prizeAmount,
+                    transactionId: result.transactionId,
+                    paymentMethod: 'solana',
+                    chain: 'solana'
+                };
+            } else {
+                // DEMO mode - simulate payment
+                console.log('   DEMO mode - simulating transaction');
+                const transactionId = this.generateSecureTxId();
+                
+                return {
+                    success: true,
+                    winner: winnerId,
+                    amount: prizeAmount,
+                    transactionId: transactionId,
+                    paymentMethod: 'demo'
+                };
             }
-            
-            // Process the prize payment
-            const result = await this.processPayment(paymentRequest.request);
-            
-            return {
-                success: true,
-                winner: winnerId,
-                amount: prizeAmount,
-                transactionId: result.transactionId
-            };
         } catch (error) {
             // Security: Generic error message
             console.error('❌ Prize Distribution Error: [Internal error]');
@@ -237,30 +251,44 @@ class X402Payments {
             console.log(`   Voted For: ${votedFor}`);
             console.log(`   Stake: ${stakeAmount} USDC`);
             
-            // Create payment request for stake
-            const paymentRequest = await this.createPaymentRequest(
-                'vote-stake',
-                stakeAmount,
-                voterId,
-                `Vote stake for battle ${battleId}`
-            );
+            // Initialize Solana connection
+            await this.solana.initialize();
             
-            if (!paymentRequest.success) {
-                throw new Error('Payment request failed');
+            // Check if we have a real wallet - if so, use real transactions
+            if (this.solana.wallet) {
+                console.log('   Using real USDC transaction via Helius/Solana');
+                
+                // Get arena treasury address (stored in env or using our wallet)
+                const treasuryAddress = process.env.TREASURY_ADDRESS || this.solana.wallet.publicKey.toString();
+                
+                // Send USDC to treasury (escrow)
+                const result = await this.solana.sendUSDC(treasuryAddress, stakeAmount);
+                
+                return {
+                    success: true,
+                    voter: '[REDACTED]',
+                    votedFor: votedFor,
+                    stake: stakeAmount,
+                    transactionId: result.transactionId,
+                    status: 'escrow',
+                    paymentMethod: 'solana',
+                    chain: 'solana'
+                };
+            } else {
+                // DEMO mode - simulate payment
+                console.log('   DEMO mode - simulating transaction');
+                const transactionId = this.generateSecureTxId();
+                
+                return {
+                    success: true,
+                    voter: '[REDACTED]',
+                    votedFor: votedFor,
+                    stake: stakeAmount,
+                    transactionId: transactionId,
+                    status: 'escrow',
+                    paymentMethod: 'demo'
+                };
             }
-            
-            // Process the stake (held in escrow until battle ends)
-            const result = await this.processPayment(paymentRequest.request);
-            
-            return {
-                success: true,
-                voter: '[REDACTED]',
-                votedFor: votedFor,
-                stake: stakeAmount,
-                transactionId: result.transactionId,
-                status: 'escrow', // Held until battle ends
-                paymentMethod: result.paymentMethod
-            };
         } catch (error) {
             // Security: Generic error message
             console.error('❌ Vote Processing Error: [Internal error]');
