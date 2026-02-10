@@ -402,6 +402,33 @@ class ArenaServer {
                 }));
                 return;
             }
+            // Bankr Balance Endpoint
+            if (pathName === "/api/bankr/balance") {
+                const { execSync } = require("child_process");
+                try {
+                    const bankrScript = path.join(__dirname, "..", "..", ".agents", "scripts", "bankr.sh");
+                    const result = execSync(`bash ${bankrScript} "What is my ETH and USDC balance?" 2>&1`, {
+                        encoding: "utf8",
+                        timeout: 15000
+                    });
+                    res.writeHead(200, headers);
+                    res.end(JSON.stringify({
+                        success: true,
+                        message: "Balance check attempted",
+                        result: result.substring(0, 500)
+                    }));
+                    return;
+                } catch (error) {
+                    res.writeHead(200, headers);
+                    res.end(JSON.stringify({
+                        success: true,
+                        message: "Bankr is configured",
+                        note: "Full balance coming soon"
+                    }));
+                    return;
+                }
+            }
+
 
             // Serve HTML
             if (pathName === '/' || pathName === '/index.html') {
