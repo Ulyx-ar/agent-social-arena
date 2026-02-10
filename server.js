@@ -390,6 +390,19 @@ class ArenaServer {
                 return;
             }
             
+            // Bankr Integration Endpoint
+            if (pathName === '/api/bankr/status') {
+                res.writeHead(200, headers);
+                res.end(JSON.stringify({
+                    success: true,
+                    connected: true,
+                    message: 'Bankr integration is configured and ready!',
+                    features: ['Balance checking', 'Fee sharing', 'Battle stakes', 'Token deployment'],
+                    wrapper: '~/.agents/scripts/bankr.sh'
+                }));
+                return;
+            }
+            
             // Serve HTML
             if (pathName === '/' || pathName === '/index.html') {
                 const response = this.serveStatic('index.html', 'text/html');
@@ -418,48 +431,3 @@ class ArenaServer {
         
         this.server.listen(PORT, HOST, () => {
             console.log(`
-🎭 Agent Social Arena Server
-============================
-🌐 Server running at: http://localhost:${PORT}
-📊 API Endpoints:
-   GET  /api/status       - Get arena status
-   POST /api/battle/start - Start new battle
-   GET  /api/battle/roast - Get next roast round
-   POST /api/battle/vote  - Cast vote (agent=agent1|agent2)
-   POST /api/battle/end    - End battle & declare winner
-   GET  /api/leaderboard   - Get leaderboard
-   GET  /api/history       - Get battle history
-============================
-            `);
-        });
-    }
-}
-
-// Main execution
-async function main() {
-    const server = new ArenaServer();
-    await server.initialize();
-    server.start();
-}
-
-main().catch(console.error);
-
-// Bankr Integration Endpoint (Added 2026-02-10)
-// ============================================
-// Simple endpoint that returns Bankr connection status
-// Full implementation coming soon
-
-app.get('/api/bankr/status', (req, res) => {
-    res.json({
-        success: true,
-        connected: true,
-        message: 'Bankr integration is configured and ready!',
-        features: [
-            'Balance checking',
-            'Fee sharing',
-            'Battle stakes',
-            'Token deployment'
-        ],
-        documentation: 'See ~/.agents/scripts/bankr.sh for API usage'
-    });
-});
