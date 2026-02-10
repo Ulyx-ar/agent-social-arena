@@ -385,11 +385,7 @@ class ArenaServer {
                 res.writeHead(200, headers);
                 res.end(JSON.stringify({
                     success: true,
-                    history: state.battleHistory
-                }));
-                return;
-            }
-            
+
             // Bankr Integration Endpoint
             if (pathName === "/api/bankr/status") {
                 res.writeHead(200, headers);
@@ -402,7 +398,14 @@ class ArenaServer {
                 }));
                 return;
             }
-
+            
+            // Serve HTML
+            if (pathName === "/" || pathName === "/index.html") {
+                    history: state.battleHistory
+                }));
+                return;
+            }
+            
             // Serve HTML
             if (pathName === '/' || pathName === '/index.html') {
                 const response = this.serveStatic('index.html', 'text/html');

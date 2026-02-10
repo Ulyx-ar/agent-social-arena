@@ -390,19 +390,6 @@ class ArenaServer {
                 return;
             }
             
-            // Bankr Integration Endpoint
-            if (pathName === "/api/bankr/status") {
-                res.writeHead(200, headers);
-                res.end(JSON.stringify({
-                    success: true,
-                    connected: true,
-                    message: "Bankr integration is configured and ready!",
-                    features: ["Balance checking", "Fee sharing", "Battle stakes", "Token deployment"],
-                    wrapper: "~/.agents/scripts/bankr.sh"
-                }));
-                return;
-            }
-
             // Serve HTML
             if (pathName === '/' || pathName === '/index.html') {
                 const response = this.serveStatic('index.html', 'text/html');
