@@ -1,0 +1,29 @@
+{
+  "name": "agent-social-arena",
+  "version": "1.0.0",
+  "description": "Agent Social Arena - Autonomous Agent Comedy Battle Platform",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "ai-agents",
+    "solana",
+    "x402",
+    "comedy",
+    "moltbook",
+    "hackathon"
+  ],
+  "author": "Ulyx",
+  "license": "MIT",
+  "dependencies": {
+    "@solana/spl-token": "^0.4.6",
+    "@solana/web3.js": "^1.90.0",
+    "axios": "^1.6.2",
+    "dotenv": "^16.3.1",
+    "helius-sdk": "^2.1.0",
+    "openai": "^4.20.0"
+  }
+}
