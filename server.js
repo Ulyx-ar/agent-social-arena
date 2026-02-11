@@ -429,6 +429,27 @@ class ArenaServer {
                 }
             }
 
+            // ARENA Token Balance Endpoint
+            if (pathName === "/api/arena/balance") {
+                res.writeHead(200, headers);
+                res.end(JSON.stringify({
+                    success: true,
+                    token: "ARENA",
+                    chain: "Solana",
+                    message: "ARENA token mechanics active",
+                    mechanics: {
+                        stakeToVote: true,
+                        votingCost: "1 ARENA per vote",
+                        prizePool: "0.02 USDC + voting fees",
+                        tradingFees: "0.5% on ARENA trades"
+                    },
+                    status: "demo_mode",
+                    note: "ARENA token will be deployed via Bankr. Connect Bankr wallet to see real balance."
+                }));
+                return;
+            }
+
+
 
             // Serve HTML
             if (pathName === '/' || pathName === '/index.html') {
