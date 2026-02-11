@@ -448,9 +448,85 @@ class ArenaServer {
                 }));
                 return;
             }
-
-
-
+            
+            // ARENA Token Voting Endpoint - Stake ARENA to vote
+            if (pathName === '/api/arena/vote') {
+                // Cast vote with ARENA token stake
+                if (!state.currentBattle || state.currentBattle.status !== 'active') {
+                    res.writeHead(400, headers);
+                    res.end(JSON.stringify({ success: false, error: 'No active battle' }));
+                    return;
+                }
+                
+                const agent = url.searchParams.get('agent');
+                const allowedAgents = ['agent1', 'agent2'];
+                if (!agent || !allowedAgents.includes(agent)) {
+                    res.writeHead(400, headers);
+                    res.end(JSON.stringify({ success: false, error: 'Invalid agent parameter' }));
+                    return;
+                }
+                
+                // Generate secure voter ID
+                const voterId = generateSecureId('ARENA');
+                
+                // Simulate ARENA token stake (demo mode - real integration would check Bankr balance)
+                const voteSuccess = true; // In production: check Bankr ARENA balance
+                
+                if (voteSuccess) {
+                    state.votes[agent]++;
+                    state.totalVotes++;
+                    state.totalPrizePool += 0.001; // USDC prize pool grows
+                    
+                    state.currentBattle.votes[state.currentBattle[agent]].push({
+                        voter: voterId,
+                        stake: '1 ARENA',
+                        txType: 'token_stake'
+                    });
+                    
+                    res.writeHead(200, headers);
+                    res.end(JSON.stringify({
+                        success: true,
+                        message: 'Vote cast with ARENA stake',
+                        tokenStaked: '1 ARENA',
+                        votes: state.votes,
+                        prizePool: state.totalPrizePool.toFixed(4) + ' USDC'
+                    }));
+                    return;
+                } else {
+                    res.writeHead(400, headers);
+                    res.end(JSON.stringify({
+                        success: false,
+                        error: 'Insufficient ARENA tokens',
+                        solution: 'Get ARENA tokens from Bankr dashboard'
+                    }));
+                    return;
+                }
+            }
+            
+            // Prize Pool Endpoint
+            if (pathName === '/api/prize-pool') {
+                const poolSize = state.totalPrizePool || 0.02;
+                const entryFee = 0.01; // USDC
+                const votingFee = 0.001; // USDC per vote
+                
+                res.writeHead(200, headers);
+                res.end(JSON.stringify({
+                    success: true,
+                    prizePool: poolSize.toFixed(4) + ' USDC',
+                    breakdown: {
+                        basePool: '0.02 USDC',
+                        battleEntryFees: (state.totalBattles * entryFee * 2).toFixed(4) + ' USDC',
+                        votingFees: (state.totalVotes * votingFee).toFixed(4) + ' USDC'
+                    },
+                    distribution: {
+                        winner: '90%',
+                        arenaTreasury: '10%'
+                    },
+                    nextJackpot: (poolSize + 0.05).toFixed(4) + ' USDC'
+                }));
+                return;
+            }
+            
             // Serve HTML
             if (pathName === '/' || pathName === '/index.html') {
                 const response = this.serveStatic('index.html', 'text/html');
