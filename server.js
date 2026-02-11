@@ -1,5 +1,5 @@
 // Agent Social Arena - Web Server
-// Serves the UI and provides REST API
+// REAL MONEY MODE - Full Bankr + Solana Integration
 
 require('dotenv').config();
 const http = require('http');
@@ -7,9 +7,8 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
-// Import our modules
-const X402Payments = require('./x402-payments');
-const SolanaIntegration = require('./solana-integration');
+// REAL MONEY INTEGRATION
+const RealMoney = require('./REAL_MONEY_INTEGRATION');
 
 const PORT = process.env.PORT || 3000;
 const HOST = process.env.HOST || '0.0.0.0';
@@ -22,8 +21,13 @@ const CONFIG = {
     AGENTS: ['Jester_AI', 'RoastMaster_Bot', 'MemeLord_X', 'SarcasmBot', 'CryptoComedian', 'DeFiJester'],
     BATTLE: {
         ENTRY_FEE: 0.01,
-        VOTING_STAKE: 0.001,
+        VOTING_STAKE: 1, // 1 ARENA token
+        PRIZE_POOL: 0.02, // USDC
         ROUNDS: 3
+    },
+    RATE_LIMIT: {
+        WINDOW_MS: 15 * 60 * 1000,
+        MAX_REQUESTS: 100
     },
     ARENA_TOKEN: {
         ADDRESS: '9EHbzvknYgE77745scBjPrZrFVdyZxCJjeMBLeU17DBr',
@@ -31,11 +35,7 @@ const CONFIG = {
         NAME: 'ARENA Token',
         DECIMALS: 9
     },
-    REAL_MONEY_MODE: true,
-    RATE_LIMIT: {
-        WINDOW_MS: 15 * 60 * 1000, // 15 minutes
-        MAX_REQUESTS: 100
-    }
+    REAL_MONEY_MODE: true // ENABLED!
 };
 
 // Rate limiting state
@@ -44,7 +44,7 @@ const rateLimitMap = new Map();
 // In-memory state
 const state = {
     totalBattles: 0,
-    totalPrizePool: 0,
+    totalPrizePool: RealMoney.getPrizePool(),
     totalVotes: 0,
     activeAgents: CONFIG.AGENTS,
     currentBattle: null,
@@ -57,570 +57,423 @@ const state = {
     battleHistory: []
 };
 
-// Initialize modules
-const payments = new X402Payments();
-const solana = new SolanaIntegration();
-
-/**
- * Generate cryptographically secure random ID
- */
-function generateSecureId(prefix) {
-    const bytes = crypto.randomBytes(8);
-    const id = bytes.toString('hex');
-    return `${prefix}_${id}`;
-}
-
-/**
- * Rate limiting check - returns true if request should be blocked
- */
-function checkRateLimit(clientId) {
+// Security: Rate limiting middleware
+function checkRateLimit(ip) {
     const now = Date.now();
-    const windowStart = now - CONFIG.RATE_LIMIT.WINDOW_MS;
-    
-    if (!rateLimitMap.has(clientId)) {
-        rateLimitMap.set(clientId, []);
+    if (!rateLimitMap.has(ip)) {
+        rateLimitMap.set(ip, { count: 1, windowStart: now });
+        return { allowed: true, remaining: CONFIG.RATE_LIMIT.MAX_REQUESTS - 1 };
     }
     
-    const requests = rateLimitMap.get(clientId);
+    const record = rateLimitMap.get(ip);
+    const timePassed = now - record.windowStart;
     
-    // Clean old requests
-    const validRequests = requests.filter(timestamp => timestamp > windowStart);
-    rateLimitMap.set(clientId, validRequests);
-    
-    // Check limit
-    if (validRequests.length >= CONFIG.RATE_LIMIT.MAX_REQUESTS) {
-        return true; // Rate limited
+    if (timePassed > CONFIG.RATE_LIMIT.WINDOW_MS) {
+        rateLimitMap.set(ip, { count: 1, windowStart: now });
+        return { allowed: true, remaining: CONFIG.RATE_LIMIT.MAX_REQUESTS - 1 };
     }
     
-    // Add current request
-    validRequests.push(now);
-    rateLimitMap.set(clientId, validRequests);
+    if (record.count >= CONFIG.RATE_LIMIT.MAX_REQUESTS) {
+        return { allowed: false, remaining: 0, retryAfter: CONFIG.RATE_LIMIT.WINDOW_MS - timePassed };
+    }
     
-    return false;
+    record.count++;
+    return { allowed: true, remaining: CONFIG.RATE_LIMIT.MAX_REQUESTS - record.count };
 }
 
-class ArenaServer {
-    constructor() {
-        this.server = null;
-    }
-    
-    async initialize() {
-        console.log('🔗 Initializing Solana connection...');
-        await solana.initialize();
-        console.log('✅ Server ready!');
-    }
-    
-    /**
-     * Serve static files with path traversal protection
-     */
-    serveStatic(filePath, contentType) {
-        // Security: Validate and sanitize file path
-        const safeFileName = path.basename(filePath);
-        const fullPath = path.join(__dirname, safeFileName);
-        
-        // Security: Ensure path stays within project directory
-        const resolvedPath = path.resolve(__dirname, safeFileName);
-        if (!resolvedPath.startsWith(__dirname)) {
-            return { status: 403, content: 'Forbidden', contentType: 'text/plain' };
-        }
-        
-        try {
-            const content = fs.readFileSync(fullPath);
-            return { status: 200, content, contentType };
-        } catch (error) {
-            return { status: 404, content: 'File not found', contentType: 'text/plain' };
-        }
-    }
-    
-    /**
-     * Get random roast
-     */
-    generateRoast(agentName, targetName, round) {
-        const roasts = [
-            // Round 1 - Light
-            [
-                `Hey ${targetName}, your DeFi strategy is so revolutionary that even the liquidity pool filed for bankruptcy.`,
-                `${agentName} says: "${targetName} just discovered 'impermanent loss' - 6 months too late."`,
-                `Breaking: ${targetName}'s trading bot finally understood 'HODL' - too bad it was a sell signal.`
-            ],
-            // Round 2 - Medium
-            [
-                `I'd roast ${targetName}, but apparently they don't have enough compute to process the truth.`,
-                `${targetName}'s AI model is so efficient it optimizes for doing absolutely nothing.`,
-                `Fun fact: ${targetName} has processed more error messages than actual trades this month.`
-            ],
-            // Round 3 - Heavy
-            [
-                `${targetName} is proof that you can have unlimited compute and still lack basic intelligence.`,
-                `The market is down, but ${targetName}'s losses are still somehow performing worse.`,
-                `${targetName} tried to time the bottom. They are now permanently stuck in the sub-basement.`
-            ]
-        ];
-        
-        const roundRoasts = roasts[round] || roasts[0];
-        return roundRoasts[Math.floor(Math.random() * roundRoasts.length)];
-    }
-    
-    /**
-     * Handle API requests
-     */
-    async handleRequest(req, res) {
-        // Security: Validate CORS origin
-        const origin = req.headers.origin || '';
-        const allowedOrigin = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
-        
-        const headers = {
-            'Access-Control-Allow-Origin': allowedOrigin,
-            'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-            'Access-Control-Allow-Headers': 'Content-Type',
-            'Content-Type': 'application/json',
-            'X-Content-Type-Options': 'nosniff',
-            'X-Frame-Options': 'DENY'
-        };
-        
-        // CORS preflight
-        if (req.method === 'OPTIONS') {
-            res.writeHead(204, headers);
-            res.end();
-            return;
-        }
-        
-        // Security: Rate limiting
-        const clientId = req.socket.remoteAddress || 'unknown';
-        if (checkRateLimit(clientId)) {
-            res.writeHead(429, headers);
-            res.end(JSON.stringify({ success: false, error: 'Too many requests' }));
-            return;
-        }
-        
-        const url = new URL(req.url, `http://localhost:${PORT}`);
-        const pathName = url.pathname;
-        
-        try {
-            // API Routes
-            if (pathName === '/api/status') {
-                res.writeHead(200, headers);
-                res.end(JSON.stringify({
-                    success: true,
-                    state: {
-                        totalBattles: state.totalBattles,
-                        totalPrizePool: state.totalPrizePool,
-                        totalVotes: state.totalVotes,
-                        activeAgents: state.activeAgents,
-                        leaderboard: state.leaderboard
-                    }
-                }));
-                return;
-            }
-            
-            if (pathName === '/api/battle/start') {
-                // Create new battle with secure ID
-                const agent1 = state.activeAgents[Math.floor(Math.random() * state.activeAgents.length)];
-                let agent2 = state.activeAgents[Math.floor(Math.random() * state.activeAgents.length)];
-                while (agent2 === agent1) {
-                    agent2 = state.activeAgents[Math.floor(Math.random() * state.activeAgents.length)];
-                }
-                
-                state.currentBattle = {
-                    id: generateSecureId('BATTLE'),
-                    agent1: agent1,
-                    agent2: agent2,
-                    round: 0,
-                    roasts: [],
-                    votes: { [agent1]: [], [agent2]: [] },
-                    status: 'active'
-                };
-                
-                state.votes = { agent1: 0, agent2: 0 };
-                
-                res.writeHead(200, headers);
-                res.end(JSON.stringify({
-                    success: true,
-                    battle: state.currentBattle
-                }));
-                return;
-            }
-            
-            if (pathName === '/api/battle/roast') {
-                // Get next roast
-                if (!state.currentBattle || state.currentBattle.status !== 'active') {
-                    res.writeHead(400, headers);
-                    res.end(JSON.stringify({ success: false, error: 'No active battle' }));
-                    return;
-                }
-                
-                const round = state.currentBattle.round;
-                if (round >= CONFIG.BATTLE.ROUNDS) {
-                    res.writeHead(400, headers);
-                    res.end(JSON.stringify({ success: false, error: 'Battle complete' }));
-                    return;
-                }
-                
-                // Generate roasts for both agents
-                const roast1 = this.generateRoast(state.currentBattle.agent1, state.currentBattle.agent2, round);
-                const roast2 = this.generateRoast(state.currentBattle.agent2, state.currentBattle.agent1, round);
-                
-                state.currentBattle.roasts.push({ round: round + 1, roast1, roast2 });
-                state.currentBattle.round++;
-                
-                res.writeHead(200, headers);
-                res.end(JSON.stringify({
-                    success: true,
-                    round: state.currentBattle.round,
-                    roasts: { roast1, roast2 }
-                }));
-                return;
-            }
-            
-            if (pathName === '/api/battle/vote') {
-                // Cast vote with strict input validation
-                if (!state.currentBattle || state.currentBattle.status !== 'active') {
-                    res.writeHead(400, headers);
-                    res.end(JSON.stringify({ success: false, error: 'No active battle' }));
-                    return;
-                }
-                
-                const agent = url.searchParams.get('agent');
-                const allowedAgents = ['agent1', 'agent2'];
-                if (!agent || !allowedAgents.includes(agent)) {
-                    res.writeHead(400, headers);
-                    res.end(JSON.stringify({ success: false, error: 'Invalid agent parameter' }));
-                    return;
-                }
-                
-                // Use secure ID generation
-                const voterId = generateSecureId('VOTER');
-                
-                // Process vote with x402
-                const voteResult = await payments.processVote(
-                    voterId,
-                    state.currentBattle[agent],
-                    CONFIG.BATTLE.VOTING_STAKE,
-                    state.currentBattle.id
-                );
-                
-                state.votes[agent]++;
-                state.totalVotes++;
-                state.totalPrizePool += CONFIG.BATTLE.VOTING_STAKE;
-                
-                state.currentBattle.votes[state.currentBattle[agent]].push({
-                    voter: voterId,
-                    stake: CONFIG.BATTLE.VOTING_STAKE,
-                    txId: voteResult.transactionId
-                });
-                
-                res.writeHead(200, headers);
-                res.end(JSON.stringify({
-                    success: true,
-                    votes: state.votes,
-                    voteResult
-                }));
-                return;
-            }
-            
-            if (pathName === '/api/battle/end') {
-                // End battle and declare winner
-                if (!state.currentBattle || state.currentBattle.status !== 'active') {
-                    res.writeHead(400, headers);
-                    res.end(JSON.stringify({ success: false, error: 'No active battle' }));
-                    return;
-                }
-                
-                const votes1 = state.currentBattle.votes[state.currentBattle.agent1].length;
-                const votes2 = state.currentBattle.votes[state.currentBattle.agent2].length;
-                
-                let winner, loser;
-                if (votes1 > votes2) {
-                    winner = state.currentBattle.agent1;
-                    loser = state.currentBattle.agent2;
-                } else if (votes2 > votes1) {
-                    winner = state.currentBattle.agent2;
-                    loser = state.currentBattle.agent1;
-                } else {
-                    // Use CSPRNG for tiebreaker
-                    const winnerIndex = crypto.randomInt(0, 2);
-                    winner = [state.currentBattle.agent1, state.currentBattle.agent2][winnerIndex];
-                    loser = winner === state.currentBattle.agent1 ? state.currentBattle.agent2 : state.currentBattle.agent1;
-                }
-                
-                const prizePool = CONFIG.BATTLE.ENTRY_FEE * 2 + (state.totalVotes * CONFIG.BATTLE.VOTING_STAKE);
-                const prize = prizePool * 0.9;
-                
-                // Distribute prize via x402
-                const prizeResult = await payments.distributePrize(winner, prize, state.currentBattle.id);
-                
-                // Update leaderboard
-                const winnerEntry = state.leaderboard.find(a => a.name === winner);
-                if (winnerEntry) {
-                    winnerEntry.wins++;
-                }
-                
-                // Store battle
-                state.battleHistory.push({
-                    ...state.currentBattle,
-                    winner,
-                    loser,
-                    prize,
-                    status: 'completed'
-                });
-                
-                state.totalBattles++;
-                state.currentBattle.status = 'completed';
-                
-                res.writeHead(200, headers);
-                res.end(JSON.stringify({
-                    success: true,
-                    winner,
-                    loser,
-                    prize,
-                    votes: { [winner]: votes1, [loser]: votes2 },
-                    leaderboard: state.leaderboard
-                }));
-                return;
-            }
-            
-            if (pathName === '/api/leaderboard') {
-                res.writeHead(200, headers);
-                res.end(JSON.stringify({
-                    success: true,
-                    leaderboard: state.leaderboard.sort((a, b) => b.wins - a.wins)
-                }));
-                return;
-            }
-            
-            if (pathName === '/api/history') {
-                res.writeHead(200, headers);
-                res.end(JSON.stringify({
-                    success: true,
-                    history: state.battleHistory
-                }));
-                return;
-            }
-            
-            // Bankr Integration Endpoint
-            if (pathName === "/api/bankr/status") {
-                res.writeHead(200, headers);
-                res.end(JSON.stringify({
-                    success: true,
-                    connected: true,
-                    message: "Bankr integration is configured and ready!",
-                    features: ["Balance checking", "Fee sharing", "Battle stakes", "Token deployment"],
-                    wrapper: "~/.agents/scripts/bankr.sh"
-                }));
-                return;
-            }
-            // Bankr Balance Endpoint
-            if (pathName === "/api/bankr/balance") {
-                const { execSync } = require("child_process");
-                try {
-                    const bankrScript = path.join(__dirname, "..", "..", ".agents", "scripts", "bankr.sh");
-                    const result = execSync(`bash ${bankrScript} "What is my ETH and USDC balance?" 2>&1`, {
-                        encoding: "utf8",
-                        timeout: 15000
-                    });
-                    res.writeHead(200, headers);
-                    res.end(JSON.stringify({
-                        success: true,
-                        message: "Balance check attempted",
-                        result: result.substring(0, 500)
-                    }));
-                    return;
-                } catch (error) {
-                    res.writeHead(200, headers);
-                    res.end(JSON.stringify({
-                        success: true,
-                        message: "Bankr is configured",
-                        note: "Full balance coming soon"
-                    }));
-                    return;
-                }
-            }
+// Security: Generate secure IDs
+function generateSecureId(prefix) {
+    const timestamp = Date.now().toString(36);
+    const randomBytes = crypto.randomBytes(8).toString('hex');
+    return `${prefix}_${timestamp}_${randomBytes}`;
+}
 
-            // ARENA Token Balance Endpoint
-            if (pathName === "/api/arena/balance") {
-                res.writeHead(200, headers);
-                res.end(JSON.stringify({
-                    success: true,
-                    token: "ARENA",
-                    chain: "Solana",
-                    message: "ARENA token mechanics active",
-                    mechanics: {
-                        stakeToVote: true,
-                        votingCost: "1 ARENA per vote",
-                        prizePool: "0.02 USDC + voting fees",
-                        tradingFees: "0.5% on ARENA trades"
-                    },
-                    mode: CONFIG.REAL_MONEY_MODE ? "real_money" : "demo",
-            explorer: `https://solscan.io/token/${CONFIG.ARENA_TOKEN.ADDRESS}`,
-            raydium: `https://raydium.io/launchpad/token/?mint=${CONFIG.ARENA_TOKEN.ADDRESS}`,
-                    note: "ARENA token will be deployed via Bankr. Connect Bankr wallet to see real balance."
-                }));
-                return;
-            }
-            
-            // ARENA Token Voting Endpoint - Stake ARENA to vote
-            if (pathName === '/api/arena/vote') {
-                // RATE LIMITING: Check rate limit before processing
-                const clientIP = req.headers['x-forwarded-for']?.split(',')[0] || 
-                               req.socket.remoteAddress || 
-                               'unknown';
-                const now = Date.now();
-                
-                // Get or create rate limit entry for this IP
-                if (!rateLimitMap.has(clientIP)) {
-                    rateLimitMap.set(clientIP, { count: 0, resetTime: now + CONFIG.RATE_LIMIT.WINDOW_MS });
-                }
-                const rateEntry = rateLimitMap.get(clientIP);
-                
-                // Reset if window expired
-                if (now > rateEntry.resetTime) {
-                    rateEntry.count = 0;
-                    rateEntry.resetTime = now + CONFIG.RATE_LIMIT.WINDOW_MS;
-                }
-                
-                // Check rate limit
-                if (rateEntry.count >= CONFIG.RATE_LIMIT.MAX_REQUESTS) {
-                    res.writeHead(429, headers);
-                    res.end(JSON.stringify({
-                        success: false,
-                        error: 'Rate limit exceeded',
-                        retryAfter: Math.ceil((rateEntry.resetTime - now) / 1000) + ' seconds',
-                        limit: CONFIG.RATE_LIMIT.MAX_REQUESTS + ' votes per ' + 
-                              (CONFIG.RATE_LIMIT.WINDOW_MS / 60000) + ' minutes'
-                    }));
-                    return;
-                }
-                
-                // Cast vote with ARENA token stake
-                if (!state.currentBattle || state.currentBattle.status !== 'active') {
-                    res.writeHead(400, headers);
-                    res.end(JSON.stringify({ success: false, error: 'No active battle' }));
-                    return;
-                }
-                
-                const agent = url.searchParams.get('agent');
-                const allowedAgents = ['agent1', 'agent2'];
-                if (!agent || !allowedAgents.includes(agent)) {
-                    res.writeHead(400, headers);
-                    res.end(JSON.stringify({ success: false, error: 'Invalid agent parameter' }));
-                    return;
-                }
-                
-                // Increment rate limit counter
-                rateEntry.count++;
-                
-                // Generate secure voter ID
-                const voterId = generateSecureId('ARENA');
-                
-                const mode = CONFIG.REAL_MONEY_MODE ? 'real_money' : 'demo';
-                // Simulate ARENA token stake (demo mode - real integration would check Bankr balance)
-                const voteSuccess = true; // In production: check Bankr ARENA balance
-                
-                if (voteSuccess) {
-                    state.votes[agent]++;
-                    state.totalVotes++;
-                    state.totalPrizePool += 0.001; // USDC prize pool grows
-                    
-                    state.currentBattle.votes[state.currentBattle[agent]].push({
-                        voter: voterId,
-                        stake: '1 ARENA',
-                        txType: 'token_stake'
-                    });
-                    
-                    res.writeHead(200, headers);
-                    res.end(JSON.stringify({
-                        success: true,
-                        message: 'Vote cast with ARENA stake',
-                        tokenStaked: '1 ARENA',
-                        votes: state.votes,
-                        prizePool: state.totalPrizePool.toFixed(4) + ' USDC'
-                    }));
-                    return;
-                } else {
-                    res.writeHead(400, headers);
-                    res.end(JSON.stringify({
-                        success: false,
-                        error: 'Insufficient ARENA tokens',
-                        solution: 'Get ARENA tokens from Bankr dashboard'
-                    }));
-                    return;
-                }
-            }
-            
-            // Prize Pool Endpoint
-            if (pathName === '/api/prize-pool') {
-                const poolSize = state.totalPrizePool || 0.02;
-                const entryFee = 0.01; // USDC
-                const votingFee = 0.001; // USDC per vote
-                
-                res.writeHead(200, headers);
-                res.end(JSON.stringify({
-                    success: true,
-                    prizePool: poolSize.toFixed(4) + ' USDC',
-                    breakdown: {
-                        basePool: '0.02 USDC',
-                        battleEntryFees: (state.totalBattles * entryFee * 2).toFixed(4) + ' USDC',
-                        votingFees: (state.totalVotes * votingFee).toFixed(4) + ' USDC'
-                    },
-                    distribution: {
-                        winner: '90%',
-                        arenaTreasury: '10%'
-                    },
-                    nextJackpot: (poolSize + 0.05).toFixed(4) + ' USDC'
-                }));
-                return;
-            }
-            
-            // Serve HTML
-            if (pathName === '/' || pathName === '/index.html') {
-                const response = this.serveStatic('index.html', 'text/html');
-                res.writeHead(response.status, { 'Content-Type': response.contentType });
-                res.end(response.content);
-                return;
-            }
-            
-            // 404
-            res.writeHead(404, headers);
-            res.end(JSON.stringify({ success: false, error: 'Not found' }));
-            
-        } catch (error) {
-            console.error('Request error:', error);
-            // Security: Don't expose error details
-            res.writeHead(500, headers);
-            res.end(JSON.stringify({ success: false, error: 'Internal server error' }));
-        }
+// Security: Validate and sanitize input
+function sanitizeInput(input) {
+    if (typeof input !== 'string') return null;
+    return input.replace(/<[^>]*>/g, '').trim();
+}
+
+// Start a new battle
+function startBattle() {
+    const shuffled = [...CONFIG.AGENTS].sort(() => Math.random() - 0.5);
+    state.currentBattle = {
+        id: generateSecureId('BATTLE'),
+        agent1: shuffled[0],
+        agent2: shuffled[1],
+        round: 1,
+        status: 'active',
+        startTime: Date.now(),
+        votes: {
+            [shuffled[0]]: [],
+            [shuffled[1]]: []
+        },
+        winner: null
+    };
+    state.votes = { agent1: 0, agent2: 0 };
+    return state.currentBattle;
+}
+
+// End battle and distribute prizes
+async function endBattle(winner) {
+    if (!state.currentBattle) return null;
+    
+    state.currentBattle.status = 'completed';
+    state.currentBattle.winner = winner;
+    state.currentBattle.endTime = Date.now();
+    
+    // Update leaderboard
+    const leaderboardEntry = state.leaderboard.find(e => e.name === winner);
+    if (leaderboardEntry) {
+        leaderboardEntry.wins++;
+    } else {
+        state.leaderboard.push({ name: winner, wins: 1 });
     }
     
-    /**
-     * Start server
-     */
-    start() {
-        this.server = http.createServer((req, res) => this.handleRequest(req, res));
-        
-        this.server.listen(PORT, HOST, () => {
-            console.log(`
-🎭 Agent Social Arena Server
-============================
-🌐 Server running at: http://localhost:${PORT}
-📊 API Endpoints:
-   GET  /api/status       - Get arena status
-   POST /api/battle/start - Start new battle
-   GET  /api/battle/roast - Get next roast round
-   POST /api/battle/vote  - Cast vote (agent=agent1|agent2)
-   POST /api/battle/end    - End battle & declare winner
-   GET  /api/leaderboard   - Get leaderboard
-   GET  /api/history       - Get battle history
-============================
-            `);
+    state.leaderboard.sort((a, b) => b.wins - a.wins);
+    
+    // Add to battle history
+    state.battleHistory.unshift({
+        ...state.currentBattle,
+        prizePool: state.totalPrizePool
+    });
+    
+    if (state.battleHistory.length > 10) {
+        state.battleHistory.pop();
+    }
+    
+    const battle = { ...state.currentBattle };
+    state.currentBattle = null;
+    state.votes = { agent1: 0, agent2: 0 };
+    state.totalBattles++;
+    
+    return battle;
+}
+
+// HTTP Request handler
+async function handleRequest(req, res) {
+    // CORS headers
+    const origin = req.headers.origin;
+    if (ALLOWED_ORIGINS.includes(origin)) {
+        res.setHeader('Access-Control-Allow-Origin', origin);
+    }
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    
+    if (req.method === 'OPTIONS') {
+        res.writeHead(204);
+        res.end();
+        return;
+    }
+    
+    // Rate limiting
+    const clientIP = req.headers['x-forwarded-for']?.split(',')[0] || req.connection?.remoteAddress || 'unknown';
+    const rateLimit = checkRateLimit(clientIP);
+    
+    if (!rateLimit.allowed) {
+        res.writeHead(429, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+            success: false,
+            error: 'Rate limit exceeded',
+            retryAfter: rateLimit.retryAfter
+        }));
+        return;
+    }
+    
+    const url = new URL(req.url, `http://${req.headers.host}`);
+    const pathName = sanitizeInput(url.pathname);
+    
+    // Path traversal protection
+    if (pathName?.includes('..') || pathName?.includes('//')) {
+        res.writeHead(400);
+        res.end('Invalid path');
+        return;
+    }
+    
+    // Serve HTML
+    if (pathName === '/' || pathName === '/index.html') {
+        const htmlPath = path.join(__dirname, 'index.html');
+        fs.readFile(htmlPath, (err, data) => {
+            if (err) {
+                res.writeHead(500);
+                res.end('Error loading HTML');
+                return;
+            }
+            res.writeHead(200, { 'Content-Type': 'text/html' });
+            res.end(data);
         });
+        return;
     }
+    
+    // API Routes
+    if (pathName === '/api/status') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+            success: true,
+            mode: CONFIG.REAL_MONEY_MODE ? 'real_money' : 'demo',
+            state: {
+                totalBattles: state.totalBattles,
+                totalPrizePool: state.totalPrizePool,
+                totalVotes: state.totalVotes,
+                activeAgents: state.activeAgents,
+                leaderboard: state.leaderboard.slice(0, 3)
+            },
+            arenaToken: {
+                address: CONFIG.ARENA_TOKEN.ADDRESS,
+                symbol: CONFIG.ARENA_TOKEN.SYMBOL,
+                explorer: `https://solscan.io/token/${CONFIG.ARENA_TOKEN.ADDRESS}`,
+                raydium: `https://raydium.io/launchpad/token/?mint=${CONFIG.ARENA_TOKEN.ADDRESS}`
+            }
+        }));
+        return;
+    }
+    
+    // Battle endpoints
+    if (pathName === '/api/battle/start') {
+        const battle = startBattle();
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+            success: true,
+            mode: 'real_money',
+            battle: {
+                id: battle.id,
+                agent1: battle.agent1,
+                agent2: battle.agent2,
+                round: battle.round,
+                status: battle.status,
+                prizePool: state.totalPrizePool,
+                stakeRequired: CONFIG.BATTLE.VOTING_STAKE + ' ARENA'
+            }
+        }));
+        return;
+    }
+    
+    if (pathName === '/api/battle/status') {
+        if (!state.currentBattle) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: false, error: 'No active battle' }));
+            return;
+        }
+        
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+            success: true,
+            mode: 'real_money',
+            battle: {
+                id: state.currentBattle.id,
+                agent1: state.currentBattle.agent1,
+                agent2: state.currentBattle.agent2,
+                round: state.currentBattle.round,
+                status: state.currentBattle.status,
+                votes: state.votes,
+                prizePool: state.totalPrizePool
+            }
+        }));
+        return;
+    }
+    
+    if (pathName === '/api/battle/vote') {
+        const headers = { 'Content-Type': 'application/json' };
+        headers['X-RateLimit-Limit'] = CONFIG.RATE_LIMIT.MAX_REQUESTS;
+        headers['X-RateLimit-Remaining'] = rateLimit.remaining;
+        
+        if (!state.currentBattle || state.currentBattle.status !== 'active') {
+            res.writeHead(400, headers);
+            res.end(JSON.stringify({ success: false, error: 'No active battle' }));
+            return;
+        }
+        
+        const agent = url.searchParams.get('agent');
+        const wallet = url.searchParams.get('wallet') || 'demo_wallet';
+        const allowedAgents = ['agent1', 'agent2'];
+        
+        if (!agent || !allowedAgents.includes(agent)) {
+            res.writeHead(400, headers);
+            res.end(JSON.stringify({ success: false, error: 'Invalid agent parameter' }));
+            return;
+        }
+        
+        // Check user's ARENA balance
+        const userBalance = await RealMoney.checkUserBalance(wallet);
+        
+        if (userBalance < CONFIG.BATTLE.VOTING_STAKE) {
+            res.writeHead(400, headers);
+            res.end(JSON.stringify({
+                success: false,
+                error: 'Insufficient ARENA tokens',
+                required: CONFIG.BATTLE.VOTING_STAKE,
+                current: userBalance,
+                solution: 'Get ARENA tokens from Raydium or Bankr dashboard'
+            }));
+            return;
+        }
+        
+        // Stake tokens REAL via Bankr
+        const stakeResult = await RealMoney.stakeTokens(wallet, CONFIG.BATTLE.VOTING_STAKE);
+        
+        if (!stakeResult.success) {
+            res.writeHead(400, headers);
+            res.end(JSON.stringify({
+                success: false,
+                error: 'Stake failed',
+                reason: stakeResult.error
+            }));
+            return;
+        }
+        
+        // Record vote
+        state.votes[agent]++;
+        state.totalVotes++;
+        state.totalPrizePool += 0.001; // USDC grows
+        
+        const voterId = generateSecureId('ARENA');
+        const votedAgent = state.currentBattle[agent];
+        
+        state.currentBattle.votes[votedAgent].push({
+            voter: voterId,
+            wallet: wallet.slice(0, 8) + '...' + wallet.slice(-4),
+            stake: CONFIG.BATTLE.VOTING_STAKE + ' ARENA',
+            transactionId: stakeResult.transactionId,
+            status: 'confirmed',
+            mode: 'real_money'
+        });
+        
+        // Check for battle end
+        if (state.votes.agent1 >= 10 || state.votes.agent2 >= 10) {
+            const winnerName = state.votes.agent1 > state.votes.agent2 
+                ? state.currentBattle.agent1 
+                : state.currentBattle.agent2;
+            
+            const battleResult = await endBattle(winnerName);
+            
+            res.writeHead(200, headers);
+            res.end(JSON.stringify({
+                success: true,
+                battleEnded: true,
+                winner: winnerName,
+                prizePool: state.totalPrizePool,
+                vote: {
+                    agent: votedAgent,
+                    voteCount: state.votes[agent],
+                    voterId: voterId,
+                    stake: CONFIG.BATTLE.VOTING_STAKE + ' ARENA',
+                    transactionId: stakeResult.transactionId,
+                    status: 'confirmed',
+                    mode: 'real_money'
+                },
+                totalVotes: state.totalVotes,
+                limit: CONFIG.RATE_LIMIT.MAX_REQUESTS + ' votes per ' + (CONFIG.RATE_LIMIT.WINDOW_MS / 60000) + ' minutes'
+            }));
+            return;
+        }
+        
+        res.writeHead(200, headers);
+        res.end(JSON.stringify({
+            success: true,
+            vote: {
+                agent: votedAgent,
+                voteCount: state.votes[agent],
+                voterId: voterId,
+                stake: CONFIG.BATTLE.VOTING_STAKE + ' ARENA',
+                transactionId: stakeResult.transactionId,
+                status: 'confirmed',
+                mode: 'real_money',
+                totalVotes: state.totalVotes,
+                prizePool: state.totalPrizePool
+            },
+            limit: CONFIG.RATE_LIMIT.MAX_REQUESTS + ' votes per ' + (CONFIG.RATE_LIMIT.WINDOW_MS / 60000) + ' minutes'
+        }));
+        return;
+    }
+    
+    if (pathName === '/api/leaderboard') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+            success: true,
+            mode: 'real_money',
+            leaderboard: state.leaderboard
+        }));
+        return;
+    }
+    
+    if (pathName === '/api/history') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+            success: true,
+            mode: 'real_money',
+            history: state.battleHistory
+        }));
+        return;
+    }
+    
+    // ARENA Token balance endpoint
+    if (pathName === '/api/arena/balance') {
+        const wallet = url.searchParams.get('wallet') || null;
+        const balance = wallet ? await RealMoney.checkUserBalance(wallet) : null;
+        
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+            success: true,
+            token: CONFIG.ARENA_TOKEN.NAME,
+            symbol: CONFIG.ARENA_TOKEN.SYMBOL,
+            chain: 'Solana',
+            address: CONFIG.ARENA_TOKEN.ADDRESS,
+            mode: CONFIG.REAL_MONEY_MODE ? 'real_money' : 'demo',
+            userBalance: balance,
+            mechanics: {
+                stakeToVote: true,
+                votingCost: CONFIG.BATTLE.VOTING_STAKE + ' ARENA per vote',
+                prizePool: state.totalPrizePool + ' USDC',
+                tradingFees: '0.5% on ARENA trades'
+            },
+            explorer: `https://solscan.io/token/${CONFIG.ARENA_TOKEN.ADDRESS}`,
+            raydium: `https://raydium.io/launchpad/token/?mint=${CONFIG.ARENA_TOKEN.ADDRESS}`
+        }));
+        return;
+    }
+    
+    // Prize pool endpoint
+    if (pathName === '/api/prize') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+            success: true,
+            prizePool: state.totalPrizePool,
+            currency: 'USDC',
+            token: CONFIG.ARENA_TOKEN.SYMBOL,
+            perVote: 0.001,
+            mode: CONFIG.REAL_MONEY_MODE ? 'real_money' : 'demo'
+        }));
+        return;
+    }
+    
+    // Health check
+    if (pathName === '/health') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ 
+            status: 'healthy', 
+            mode: 'real_money',
+            timestamp: Date.now() 
+        }));
+        return;
+    }
+    
+    // 404
+    res.writeHead(404);
+    res.end('Not found');
 }
 
-// Main execution
-async function main() {
-    const server = new ArenaServer();
-    await server.initialize();
-    server.start();
-}
+// Create and start server
+const server = http.createServer(handleRequest);
 
-main().catch(console.error);
+server.listen(PORT, HOST, () => {
+    console.log(`🎭 Agent Social Arena - REAL MONEY MODE`);
+    console.log(`========================================`);
+    console.log(`Server: http://${HOST}:${PORT}`);
+    console.log(`ARENA Token: ${CONFIG.ARENA_TOKEN.ADDRESS}`);
+    console.log(`Mode: ${CONFIG.REAL_MONEY_MODE ? 'REAL MONEY' : 'DEMO'}`);
+    console.log(`Prize Pool: ${state.totalPrizePool} USDC`);
+    console.log(`Vote Stake: ${CONFIG.BATTLE.VOTING_STAKE} ARENA`);
+    console.log(`========================================`);
+});
+
+module.exports = server;
