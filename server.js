@@ -25,6 +25,13 @@ const CONFIG = {
         VOTING_STAKE: 0.001,
         ROUNDS: 3
     },
+    ARENA_TOKEN: {
+        ADDRESS: '9EHbzvknYgE77745scBjPrZrFVdyZxCJjeMBLeU17DBr',
+        SYMBOL: 'ARENA',
+        NAME: 'ARENA Token',
+        DECIMALS: 9
+    },
+    REAL_MONEY_MODE: true,
     RATE_LIMIT: {
         WINDOW_MS: 15 * 60 * 1000, // 15 minutes
         MAX_REQUESTS: 100
@@ -443,7 +450,9 @@ class ArenaServer {
                         prizePool: "0.02 USDC + voting fees",
                         tradingFees: "0.5% on ARENA trades"
                     },
-                    status: "demo_mode",
+                    mode: CONFIG.REAL_MONEY_MODE ? "real_money" : "demo",
+            explorer: `https://solscan.io/token/${CONFIG.ARENA_TOKEN.ADDRESS}`,
+            raydium: `https://raydium.io/launchpad/token/?mint=${CONFIG.ARENA_TOKEN.ADDRESS}`,
                     note: "ARENA token will be deployed via Bankr. Connect Bankr wallet to see real balance."
                 }));
                 return;
@@ -503,6 +512,7 @@ class ArenaServer {
                 // Generate secure voter ID
                 const voterId = generateSecureId('ARENA');
                 
+                const mode = CONFIG.REAL_MONEY_MODE ? 'real_money' : 'demo';
                 // Simulate ARENA token stake (demo mode - real integration would check Bankr balance)
                 const voteSuccess = true; // In production: check Bankr ARENA balance
                 
