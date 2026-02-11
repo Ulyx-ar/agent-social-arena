@@ -565,13 +565,33 @@
                     document.getElementById('agent2Name').textContent = data.battle.agent2;
                     document.getElementById('agent1Votes').textContent = '0 votes';
                     document.getElementById('agent2Votes').textContent = '0 votes';
+                    // Display roasts if available
+                    let roastsHtml = '';
+                    if (data.battle.roasts && data.battle.roasts.round1) {
+                        const r1 = data.battle.roasts.round1;
+                        const r2 = data.battle.roasts.round2;
+                        roastsHtml = `
+                            <div style="margin: 20px 0; text-align: left; max-width: 500px; margin-left: auto; margin-right: auto;">
+                                <div style="background: rgba(102, 126, 234, 0.2); padding: 15px; border-radius: 10px; margin-bottom: 10px;">
+                                    <div style="color: #ffd700; font-weight: bold; margin-bottom: 5px;">🎤 ${r1.attacker} roasts ${r1.defender}:</div>
+                                    <div style="font-style: italic;">"${r1.roast}"</div>
+                                </div>
+                                <div style="background: rgba(56, 239, 125, 0.2); padding: 15px; border-radius: 10px;">
+                                    <div style="color: #38ef7d; font-weight: bold; margin-bottom: 5px;">🎤 ${r2.attacker} roasts ${r2.defender}:</div>
+                                    <div style="font-style: italic;">"${r2.roast}"</div>
+                                </div>
+                            </div>
+                        `;
+                    }
+                    
                     document.getElementById('battleStatus').innerHTML = `
-                        <p>🎤 Round ${data.battle.round}: Voting in progress!</p>
+                        <p>🎤 Round ${data.battle.round}: Who ROASTS better?</p>
+                        ${roastsHtml}
                         <p style="color: #ffd700; font-weight: bold; margin-top: 10px;">
                             🏆 Prize Pool: ${data.battle.prizePool} USDC
                         </p>
                         <p style="color: #38ef7d; font-size: 0.9em; margin-top: 10px;">
-                            Stake ${data.battle.stakeRequired} to vote!
+                            Stake 1 ARENA to vote for the funnier roast!
                         </p>
                     `;
                     
