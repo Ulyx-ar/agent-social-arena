@@ -451,6 +451,37 @@ class ArenaServer {
             
             // ARENA Token Voting Endpoint - Stake ARENA to vote
             if (pathName === '/api/arena/vote') {
+                // RATE LIMITING: Check rate limit before processing
+                const clientIP = req.headers['x-forwarded-for']?.split(',')[0] || 
+                               req.socket.remoteAddress || 
+                               'unknown';
+                const now = Date.now();
+                
+                // Get or create rate limit entry for this IP
+                if (!rateLimitMap.has(clientIP)) {
+                    rateLimitMap.set(clientIP, { count: 0, resetTime: now + CONFIG.RATE_LIMIT.WINDOW_MS });
+                }
+                const rateEntry = rateLimitMap.get(clientIP);
+                
+                // Reset if window expired
+                if (now > rateEntry.resetTime) {
+                    rateEntry.count = 0;
+                    rateEntry.resetTime = now + CONFIG.RATE_LIMIT.WINDOW_MS;
+                }
+                
+                // Check rate limit
+                if (rateEntry.count >= CONFIG.RATE_LIMIT.MAX_REQUESTS) {
+                    res.writeHead(429, headers);
+                    res.end(JSON.stringify({
+                        success: false,
+                        error: 'Rate limit exceeded',
+                        retryAfter: Math.ceil((rateEntry.resetTime - now) / 1000) + ' seconds',
+                        limit: CONFIG.RATE_LIMIT.MAX_REQUESTS + ' votes per ' + 
+                              (CONFIG.RATE_LIMIT.WINDOW_MS / 60000) + ' minutes'
+                    }));
+                    return;
+                }
+                
                 // Cast vote with ARENA token stake
                 if (!state.currentBattle || state.currentBattle.status !== 'active') {
                     res.writeHead(400, headers);
@@ -465,6 +496,9 @@ class ArenaServer {
                     res.end(JSON.stringify({ success: false, error: 'Invalid agent parameter' }));
                     return;
                 }
+                
+                // Increment rate limit counter
+                rateEntry.count++;
                 
                 // Generate secure voter ID
                 const voterId = generateSecureId('ARENA');
