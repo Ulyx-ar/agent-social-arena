@@ -97,18 +97,25 @@ function sanitizeInput(input) {
 // Start a new battle
 function startBattle() {
     const shuffled = [...CONFIG.AGENTS].sort(() => Math.random() - 0.5);
+    const agent1 = shuffled[0];
+    const agent2 = shuffled[1];
+    
+    // Generate battle roasts
+    const battleRoasts = Roasts.getBattle(agent1, agent2);
+    
     state.currentBattle = {
         id: generateSecureId('BATTLE'),
-        agent1: shuffled[0],
-        agent2: shuffled[1],
+        agent1: agent1,
+        agent2: agent2,
         round: 1,
         status: 'active',
         startTime: Date.now(),
         votes: {
-            [shuffled[0]]: [],
-            [shuffled[1]]: []
+            [agent1]: [],
+            [agent2]: []
         },
-        winner: null
+        winner: null,
+        roasts: battleRoasts
     };
     state.votes = { agent1: 0, agent2: 0 };
     return state.currentBattle;
@@ -266,7 +273,8 @@ async function handleRequest(req, res) {
                 round: state.currentBattle.round,
                 status: state.currentBattle.status,
                 votes: state.votes,
-                prizePool: state.totalPrizePool
+                prizePool: state.totalPrizePool,
+                roasts: state.currentBattle.roasts || null
             }
         }));
         return;
@@ -477,3 +485,27 @@ server.listen(PORT, HOST, () => {
 });
 
 module.exports = server;
+
+// ROASTS INTEGRATION
+const Roasts = require('./roasts');
+
+// Battle roasts endpoint
+if (pathName === '/api/battle/roasts') {
+    const agent1 = url.searchParams.get('agent1');
+    const agent2 = url.searchParams.get('agent2');
+    
+    if (agent1 && agent2 && CONFIG.AGENTS.includes(agent1) && CONFIG.AGENTS.includes(agent2)) {
+        const battle = Roasts.getBattle(agent1, agent2);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+            success: true,
+            battle: {
+                agents: battle.agents,
+                round1: battle.round1,
+                round2: battle.round2,
+                round3: battle.round3
+            }
+        }));
+        return;
+    }
+}
