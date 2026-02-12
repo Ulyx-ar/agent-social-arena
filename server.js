@@ -10,6 +10,9 @@ const crypto = require('crypto');
 // REAL MONEY INTEGRATION
 const RealMoney = require('./REAL_MONEY_INTEGRATION');
 
+// ROASTS INTEGRATION
+const Roasts = require('./roasts');
+
 const PORT = process.env.PORT || 3000;
 const HOST = process.env.HOST || '0.0.0.0';
 
@@ -464,7 +467,28 @@ async function handleRequest(req, res) {
         }));
         return;
     }
-    
+
+    // Battle roasts endpoint
+    if (pathName === '/api/battle/roasts') {
+        const agent1 = url.searchParams.get('agent1');
+        const agent2 = url.searchParams.get('agent2');
+        
+        if (agent1 && agent2 && CONFIG.AGENTS.includes(agent1) && CONFIG.AGENTS.includes(agent2)) {
+            const battle = Roasts.getBattle(agent1, agent2);
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+                success: true,
+                battle: {
+                    agents: battle.agents,
+                    round1: battle.round1,
+                    round2: battle.round2,
+                    round3: battle.round3
+                }
+            }));
+            return;
+        }
+    }
+
     // 404
     res.writeHead(404);
     res.end('Not found');
@@ -485,27 +509,3 @@ server.listen(PORT, HOST, () => {
 });
 
 module.exports = server;
-
-// ROASTS INTEGRATION
-const Roasts = require('./roasts');
-
-// Battle roasts endpoint
-if (pathName === '/api/battle/roasts') {
-    const agent1 = url.searchParams.get('agent1');
-    const agent2 = url.searchParams.get('agent2');
-    
-    if (agent1 && agent2 && CONFIG.AGENTS.includes(agent1) && CONFIG.AGENTS.includes(agent2)) {
-        const battle = Roasts.getBattle(agent1, agent2);
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
-            success: true,
-            battle: {
-                agents: battle.agents,
-                round1: battle.round1,
-                round2: battle.round2,
-                round3: battle.round3
-            }
-        }));
-        return;
-    }
-}
